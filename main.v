@@ -25,6 +25,7 @@
 
 */
 
+@[has_globals]
 module main
 
 import os
@@ -40,6 +41,13 @@ struct Screenshot {
 struct GrimResult {
 	file_path string
 }
+
+struct Config {
+	output_dir string = os.join_path(os.home_dir(), 'Pictures', 'Screenshots')
+	color      string = '#89b4fa'
+}
+
+__global config = Config{}
 
 struct Choice {
 mut:
@@ -63,7 +71,7 @@ fn slurp() Screenshot {
 }
 
 fn grim(pos string, size string) GrimResult {
-	file := os.join_path(os.home_dir(), 'Pictures', 'Screenshots', 'Screenshot-${time.now().custom_format('YYYY-MM-DD_HH-mm-ss')}')
+	file := os.join_path(config.output_dir, 'Screenshot-${time.now().custom_format('YYYY-MM-DD_HH-mm-ss')}')
 	os.exec(['grim', '-g', '"${pos} ${size}"', '${file}'])
 	return GrimResult{
 		file_path: file
@@ -92,7 +100,7 @@ fn region_screenshot() ! {
 		height: s[1].int()
 	}
 
-	mut o := overlay.new()!
+	mut o := overlay.new(config.color)!
 	o.box_pos = pos
 	o.box_size = size
 

@@ -3,6 +3,7 @@ module overlay
 import wayland
 import wayland.protocols.wayland as wl
 import wayland.protocols.wlr_layer_shell_unstable_v1 as layer_shell
+import strconv
 import math
 
 // structs
@@ -18,29 +19,71 @@ pub mut:
 
 	box_pos  Pos
 	box_size Size
+	color    Color
 
 	bindings map[string]Callback
 	running  bool
 }
 
-pub fn (o Overlay) draw_pixels(pos Pos, size Size, color string) {
+pub struct Color {
+pub mut:
+	r u8
+	g u8
+	b u8
+	a u8 = 255
+}
+
+pub fn color_from_hex(str string) !Color {
+	mut color := Color{}
+	s := if str.starts_with('#') { str[1..] } else { str }
+	for c in s {
+		if !c.is_hex_digit() {
+			return error('invalid hex character in "${str}"')
+		}
+	}
+	match s.len {
+		3 {
+			// #RGB
+			color.r = u8(strconv.parse_uint(s[0..1], 16, 8)!) * 17
+			color.g = u8(strconv.parse_uint(s[1..2], 16, 8)!) * 17
+			color.b = u8(strconv.parse_uint(s[2..3], 16, 8)!) * 17
+		}
+		6 {
+			// #RRGGBB
+			color.r = u8(strconv.parse_uint(s[0..2], 16, 8)!)
+			color.g = u8(strconv.parse_uint(s[2..4], 16, 8)!)
+			color.b = u8(strconv.parse_uint(s[4..6], 16, 8)!)
+		}
+		8 {
+			// #RRGGBBAA
+			color.r = u8(strconv.parse_uint(s[0..2], 16, 8)!)
+			color.g = u8(strconv.parse_uint(s[2..4], 16, 8)!)
+			color.b = u8(strconv.parse_uint(s[4..6], 16, 8)!)
+			color.a = u8(strconv.parse_uint(s[6..8], 16, 8)!)
+		}
+		else {
+			return error('unknown hex color length')
+		}
+	}
+	return color
+}
+
+pub fn (o Overlay) draw_pixels(pos Pos, size Size) {
 	mut pixels := o.buffer.pixels()
 
-	r := '0x${color[1..3]}'.u8()
-	g := '0x${color[3..5]}'.u8()
-	b := '0x${color[5..7]}'.u8()
-	a := 0xff
-	for x in pos.x .. pos.x + size.width {
-		for y in pos.y .. pos.y + size.height {
-			if x < 0 || y < 0 || x >= o.buffer.width || y >= o.buffer.height {
-				continue
-			}
-			offset := y * o.buffer.stride + x * 4
+	x0 := if pos.x < 0 { 0 } else { pos.x }
+	y0 := if pos.y < 0 { 0 } else { pos.y }
+	x1 := if pos.x + size.width > o.buffer.width { o.buffer.width } else { pos.x + size.width }
+	y1 := if pos.y + size.height > o.buffer.height { o.buffer.height } else { pos.y + size.height }
 
-			pixels[offset] = b
-			pixels[offset + 1] = g
-			pixels[offset + 2] = r
-			pixels[offset + 3] = a
+	for y in y0 .. y1 {
+		row := y * o.buffer.stride
+		for x in x0 .. x1 {
+			offset := row + x * 4
+			pixels[offset] = o.color.b
+			pixels[offset + 1] = o.color.g
+			pixels[offset + 2] = o.color.r
+			pixels[offset + 3] = o.color.a
 		}
 	}
 }
@@ -50,7 +93,7 @@ pub fn (mut o Overlay) draw_box(thickness int) {
 	o.draw_pixels(o.box_pos, overlay.Size{
 		width:  o.box_size.width
 		height: thickness
-	}, '#89b4fa')
+	})
 
 	// bottom
 	o.draw_pixels(overlay.Pos{
@@ -59,13 +102,13 @@ pub fn (mut o Overlay) draw_box(thickness int) {
 	}, overlay.Size{
 		width:  o.box_size.width
 		height: thickness
-	}, '#89b4fa')
+	})
 
 	// left
 	o.draw_pixels(o.box_pos, overlay.Size{
 		width:  thickness
 		height: o.box_size.height
-	}, '#89b4fa')
+	})
 
 	// right
 	o.draw_pixels(overlay.Pos{
@@ -74,7 +117,7 @@ pub fn (mut o Overlay) draw_box(thickness int) {
 	}, overlay.Size{
 		width:  thickness
 		height: o.box_size.height
-	}, '#89b4fa')
+	})
 }
 
 pub fn (mut o Overlay) bind_input(name string, cb Callback) {
@@ -133,7 +176,8 @@ pub fn (mut o Overlay) close() ! {
 	o.conn.close()
 }
 
-pub fn new() !Overlay {
+pub fn new(color string) !Overlay {
+	parsed_color := color_from_hex(color)!
 	mut conn := wayland.connect()!
 	globals := conn.globals()!
 
@@ -173,6 +217,7 @@ pub fn new() !Overlay {
 	mut buffer := wayland.ShmBuffer.new(shm, int(layerlistener.width), int(layerlistener.height), wl.wl_shm_format_argb8888)!
 
 	return Overlay{
+		color:            parsed_color
 		buffer:           buffer
 		surface:          surface
 		conn:             conn
